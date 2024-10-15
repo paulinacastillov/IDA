@@ -1,0 +1,99 @@
+---
+title: "(C)-Los diez mejores-7"
+author: "Jeorge Atherton & Paulina Castillo"
+date: "2024-10-12"
+output: pdf_document
+---
+
+Borrar 
+```{r, echo=F}
+    git init
+    git add .
+    git commit -m "Add existing project files to Git"
+    git remote add origin https://github.com/cameronmcnz/example-website.git
+    git push -u -f origin master
+```
+
+
+```{r, results="hide", message=FALSE, echo=F}
+## load/install packages
+packages = c("tidyverse","caret","car","mice")
+lapply(packages, require, character.only = TRUE)
+```
+
+
+```{r, message=FALSE, echo=F}
+## load data
+raw_data = read_csv('Train/Train.csv',show_col_types = FALSE)
+str(raw_data, give.attr = FALSE)
+```
+
+Redefine datatypes:
+```{r, echo=F}
+
+chr_vars = c('sessionId', 'custId', 'keyword', 'referralPath', 'adContent',
+             'adwordsClickInfo.gclId', 'networkDomain')
+
+num_vars = c('visitNumber',
+'timeSinceLastVisit',
+'pageviews','revenue')
+
+log_vars = c('isMobile',
+'isTrueDirect', 'adwordsClickInfo.isVideoAd',
+'bounces', 'newVisits')
+
+date_vars = c('date','visitStartTime')
+
+factor_vars = setdiff(names(raw_data), c(chr_vars,num_vars,log_vars,date_vars))
+
+raw_data_typed = raw_data %>%
+  mutate_at(chr_vars, as.character) %>%
+  mutate_at(num_vars, as.numeric) %>%
+  mutate_at(log_vars, as.logical) %>%
+  mutate_at(date_vars, as.Date) %>%
+  mutate_at(factor_vars, as.factor) 
+
+raw_data_typed %>% 
+  summarise_all(typeof) %>% 
+  gather()
+```
+
+
+
+Data quality reports (This needs to be added)
+```{r, echo=F}
+
+```
+
+
+
+Screen out poor quality variables (Do after data quality checks)
+```{r, echo=F}
+cols_to_keep = c('date','channelGrouping','visitStartTime','visitNumber',
+'timeSinceLastVisit','browser','operatingSystem','isMobile','deviceCategory',
+'continent','country','campaign','source','medium','isTrueDirect',
+'adwordsClickInfo.slot','pageviews','bounces','revenue')
+
+clean_data = raw_data_typed %>%
+  select(all_of(cols_to_keep)) %>%
+  mutate(month = factor(month(date)))
+
+```
+
+
+Perform some factor collapsing (do after data quality checks)
+```{r, echo=F}
+# browser, operatingSystem, source, country, topLevelDomain need to be collapsed
+## strategy->collapse factors based on proportion of revenue
+clean_data = clean_data %>% 
+  mutate(browser=fct_lump_n(browser, w=logRevenue, n=4),
+         operatingSystem=fct_lump_n(operatingSystem, w=logRevenue, n=5),
+         source=fct_lump_lowfreq(source, w=logRevenue),
+         country=fct_lump_n(country, w=logRevenue, n=5)) 
+clean_data %>% str()
+```
+
+
+
+
+
