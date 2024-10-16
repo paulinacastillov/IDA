@@ -5,20 +5,20 @@ date: "2024-10-12"
 output: pdf_document
 ---
 
-Borrar 
-```{r, echo=F}
+Git Reference 
     git init
     git add .
     git commit -m "Add existing project files to Git"
     git remote add origin https://github.com/cameronmcnz/example-website.git
     git push -u -f origin master
-```
 
 
 ```{r, results="hide", message=FALSE, echo=F}
 ## load/install packages
-packages = c("tidyverse","caret","car","mice")
+packages = c("caret","car","mice", "knitr","tidyverse")
 lapply(packages, require, character.only = TRUE)
+options(digits=3)
+options(scipen=99)
 ```
 
 
@@ -40,7 +40,7 @@ num_vars = c('visitNumber',
 
 log_vars = c('isMobile',
 'isTrueDirect', 'adwordsClickInfo.isVideoAd',
-'bounces', 'newVisits')
+'bounces', 'newVisits','adwordsClickInfo.adNetworkType')
 
 date_vars = c('date','visitStartTime')
 
@@ -51,19 +51,122 @@ raw_data_typed = raw_data %>%
   mutate_at(num_vars, as.numeric) %>%
   mutate_at(log_vars, as.logical) %>%
   mutate_at(date_vars, as.Date) %>%
-  mutate_at(factor_vars, as.factor) 
+  mutate_at(factor_vars, as_factor) 
 
 raw_data_typed %>% 
-  summarise_all(typeof) %>% 
+  summarise_all(class) %>% 
   gather()
 ```
 
-
-
-Data quality reports (This needs to be added)
+Numeric Data Quality Report:
 ```{r, echo=F}
+## helper functions
+Q1<-function(x,na.rm=TRUE) {
+quantile(x,na.rm=na.rm)[2]
+}
+Q3<-function(x,na.rm=TRUE) {
+quantile(x,na.rm=na.rm)[4]
+}
 
+## -- Numeric Summary -- ##
+myNumericSummary <- function(x){
+c(length(x), 
+  n_distinct(x), 
+  sum(is.na(x)), 
+  mean(x, na.rm=TRUE),
+  min(x,na.rm=TRUE), 
+  Q1(x,na.rm=TRUE),
+  median(x,na.rm=TRUE),
+  Q3(x,na.rm=TRUE),
+  max(x,na.rm=TRUE), 
+  sd(x,na.rm=TRUE))}
+
+numericSummary = raw_data_typed %>%
+  select(where(is.numeric)) %>%
+  reframe(across(everything(), ~ myNumericSummary(.), .names = "{col}"))
+
+numericSummary = cbind(
+stat=c("n","unique","missing","mean","min","Q1","median","Q3","max","sd"),
+numericSummary)
+
+#glimpse(numericSummary)
+
+numericSummaryFinal = numericSummary %>%
+pivot_longer(-stat, names_to = "variable", values_to = "value") %>%
+pivot_wider(names_from = stat, values_from = value) %>%
+mutate(missing_pct = 100*missing/n, unique_pct = 100*unique/n) %>%
+select(variable, n, missing, missing_pct, unique, unique_pct, everything())
+
+numericSummaryFinal %>% kable()
 ```
+
+Factor Data Quality Report:
+```{r, echo=F}
+## helper functions
+getmodes <- function(v, type = 1) {
+  tbl <- table(v)
+  m1 <- which.max(tbl)
+  if (type == 1) {
+    return(names(m1))  # 1st mode
+  } else if (type == 2) {
+    return(names(which.max(tbl[-m1])))  # 2nd mode
+  } else if (type == -1) {
+    return(names(which.min(tbl)))  # least common mode
+  } else {
+    stop("Invalid type selected")
+  }
+}
+
+getmodesCnt <- function(v, type = 1) {
+  tbl <- table(v)
+  m1 <- which.max(tbl)
+  if (type == 1) {
+    return(max(tbl))  # 1st mode frequency
+  } else if (type == 2) {
+    return(max(tbl[-m1]))  # 2nd mode frequency
+  } else if (type == -1) {
+    return(min(tbl))  # least common frequency
+  } else {
+    stop("Invalid type selected")
+  }
+}
+
+## issue is in this function here...
+noNumericSummary <- function(x){
+c(length(x), 
+  n_distinct(x), 
+  sum(is.na(x)), 
+  getmodes(x, type=1), # 1st mode
+  getmodesCnt(x,type=1), # 1st freq
+  getmodes(x, type=2), # 2nd mode
+  getmodesCnt(x,type=2), # 2nd freq
+  getmodes(x, type=-1), # Less common
+  getmodesCnt(x,type=-1) # Less common freq
+  )
+}
+
+factorSummary = raw_data_typed %>%
+  select(where(is.factor)) %>%
+  reframe(across(everything(), ~ noNumericSummary(.), .names = "{col}"))
+
+nonumericSummary = cbind(
+stat=c("n","unique","missing","1st mode","1st mode freq","2nd mode","2nd mode freq","least common","least common freq"),
+factorSummary)
+
+nonumericSummaryFinal <- nonumericSummary %>%
+pivot_longer(-stat, names_to = "variable", values_to = "value") %>%
+pivot_wider(names_from = stat, values_from = value) %>%
+mutate(missing = as.numeric(missing),
+         unique = as.numeric(unique),
+         n = as.numeric(n)) %>%
+mutate(missing_pct = 100*as.numeric(missing)/n,
+unique_pct = 100*unique/n) %>%
+select(variable, n, missing, missing_pct, unique, unique_pct, everything())
+
+nonumericSummaryFinal %>% kable()
+```
+
+
 
 
 
