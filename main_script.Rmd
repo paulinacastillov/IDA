@@ -1,7 +1,7 @@
 ---
 title: "(C)-Los diez mejores-7"
 author: "Jeorge Atherton & Paulina Castillo"
-date: "2024-10-12"
+date: "`r Sys.Date()`"
 output: pdf_document
 ---
 
@@ -15,10 +15,11 @@ Git Reference
 
 ```{r, results="hide", message=FALSE, echo=F}
 ## load/install packages
-packages = c("caret","car","mice", "knitr","tidyverse")
+packages = c("caret","car","mice", "knitr","tidyverse", "GGally")
 lapply(packages, require, character.only = TRUE)
 options(digits=3)
 options(scipen=99)
+theme_set(theme_bw())
 ```
 
 
@@ -99,6 +100,9 @@ select(variable, n, missing, missing_pct, unique, unique_pct, everything())
 
 numericSummaryFinal %>% kable()
 ```
+For the numeric variables, it looks like the there aren't many issues with 
+missing values but there are definitely some outliers to look out for here. 
+
 
 Factor Data Quality Report:
 ```{r, echo=F}
@@ -150,7 +154,8 @@ factorSummary = raw_data_typed %>%
   reframe(across(everything(), ~ noNumericSummary(.), .names = "{col}"))
 
 nonumericSummary = cbind(
-stat=c("n","unique","missing","1st mode","1st mode freq","2nd mode","2nd mode freq","least common","least common freq"),
+stat=c("n","unique","missing","1st mode","1st mode freq","2nd mode",
+       "2nd mode freq","least common","least common freq"),
 factorSummary)
 
 nonumericSummaryFinal <- nonumericSummary %>%
@@ -165,8 +170,62 @@ select(variable, n, missing, missing_pct, unique, unique_pct, everything())
 
 nonumericSummaryFinal %>% kable()
 ```
+For factor data we can see a fair number of variables with large proportions 
+of missing values. These will likely need to be dropped or handled as being 
+another category in the data. It's possible that some of these sparse fields
+do a good job of explaining revenue. 
 
+###########################
+Let's view some plots now:
 
+```{r, echo=F}
+raw_data_typed %>%
+  select_if(is.numeric) %>%
+  ggpairs()
+```
+Definitely some extreme behavior here. Pageviews seems mildly correlated with
+revenue but the others we can't tell at the transactional level.
+
+How many customers actually bought anything?
+```{r, echo=F}
+raw_data_typed %>%
+  group_by(custId) %>%
+  summarize(bought = ifelse(sum(revenue)>0,1,0)) %>%
+  ungroup() %>%
+  summarize(mean(bought))
+```
+Looks like ~11% of customers actually ever bought anything...
+
+Of those customers that bought anything, how much did they spend?
+```{r, echo=F}
+## of those customers that bought, what does that look like?
+raw_data_typed %>%
+  group_by(custId) %>%
+  summarize(revenue = sum(revenue)) %>%
+  filter(revenue>0)  %>%
+  ggplot(aes(log(revenue))) +
+  geom_histogram() +
+  labs(title="Natural Log Revenue for Customers that Bought")
+```
+So essentially the log-adjusted revenue is normal looking. There are now two big
+facts: only about 1 in 10 customers actually every buys anything, but those 
+customers that do buy something follows a log adjusted normal distribution. Now
+the question is which factors will predict a customer will buy anything at all?
+
+Boxplots of 'bought' by continent:
+```{r, echo=F}
+raw_data_typed %>%
+  group_by(continent,custId) %>%
+  summarize(bought = ifelse(sum(revenue)>0,1,0)) %>%
+  group_by(continent) %>%
+  summarize(bought = mean(bought)) %>%
+  ggplot(aes(x=continent, y=bought)) +
+  geom_col() +
+  labs(title="Proportion of Customers that Bought by Continent")
+```
+From this simple bar chart, we see clearly that people from the Americas are far 
+more likely to buy something over the course of the year than from other 
+continents. 
 
 
 
