@@ -281,6 +281,181 @@ clean_data = raw_data_typed %>%
 ```
 
 
+# ----- PAULINA SOME EXPERIMENTS --------
+
+
+
+
+```{r}
+raw_data <- raw_data %>%
+  mutate(newVisits = replace_na(newVisits, 0))
+
+```
+
+```{r}
+newVisits_summary <- raw_data %>%
+  group_by(newVisits) %>%
+  summarise(count = n())
+
+# Print the summary of newVisits
+print(newVisits_summary)
+```
+
+
+
+```{r}
+
+# Calculating the 95% Confidence Interval for revenue
+mean_revenue <- mean(raw_data$revenue, na.rm = TRUE)
+std_error <- sd(raw_data$revenue, na.rm = TRUE) / sqrt(nrow(raw_data))
+
+# 95% confidence interval calculation
+ci_lower <- mean_revenue - qt(0.975, df = nrow(raw_data) - 1) * std_error
+ci_upper <- mean_revenue + qt(0.975, df = nrow(raw_data) - 1) * std_error
+
+# Display the confidence interval
+cat("95% Confidence Interval for Revenue: [", ci_lower, ",", ci_upper, "]\n")
+```
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+
+
+# Filter data to exclude missing values in revenue and newVisits
+data_new_visit <- raw_data %>% filter(!is.na(revenue), !is.na(newVisits))
+
+# Separate data into two groups: first-time visitors and repeat visitors
+first_time_visitors <- data_new_visit %>% filter(newVisits == 1)
+repeat_visitors <- data_new_visit %>% filter(newVisits == 0)
+
+```
+
+
+```{r}
+# Function to calculate 95% confidence interval for a given dataset
+calc_confidence_interval <- function(data) {
+  mean_revenue <- mean(data$revenue, na.rm = TRUE)
+  std_error <- sd(data$revenue, na.rm = TRUE) / sqrt(nrow(data))
+  
+  ci_lower <- mean_revenue - qt(0.975, df = nrow(data) - 1) * std_error
+  ci_upper <- mean_revenue + qt(0.975, df = nrow(data) - 1) * std_error
+  
+  return(c(ci_lower, ci_upper, mean_revenue))
+}
+
+# Calculate 95% confidence intervals for both groups
+ci_first_time <- calc_confidence_interval(first_time_visitors)
+ci_repeat <- calc_confidence_interval(repeat_visitors)
+
+# Print confidence intervals
+cat("95% Confidence Interval for First-Time Visitors Revenue: [", ci_first_time[1], ",", ci_first_time[2], "] with a mean of ", ci_first_time[3],"\n")
+cat("95% Confidence Interval for Repeat Visitors Revenue: [", ci_repeat[1], ",", ci_repeat[2], "] with a mean of ",ci_repeat[3])
+
+```
+
+There's a diference between who's a new clients who's not 
+
+```{r}
+
+# Group by customer ID and calculate total visits per customer
+visit_frequency <- raw_data %>%
+  group_by(custId) %>%
+  summarise(total_visits = n())
+
+# Visualize the distribution of visit frequency
+ggplot(visit_frequency, aes(x = total_visits)) +
+  geom_histogram(binwidth = 1, fill = "blue", alpha = 0.7, color = "black") +
+  labs(title = "Customer Visit Frequency", x = "Total Visits", y = "Number of Customers") +
+  theme_minimal()
+
+```
+
+```{r}
+# Device usage by customers
+device_usage <- raw_data %>%
+  group_by(deviceCategory) %>%
+  summarise(count = n())
+
+# Plot device usage
+ggplot(device_usage, aes(x = deviceCategory, y = count, fill = deviceCategory)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Device Usage by Customers", x = "Device Category", y = "Number of Sessions") +
+  theme_minimal()
+
+```
+```{r}
+# Geographic distribution (example by continent)
+geo_distribution <- raw_data %>%
+  group_by(continent) %>%
+  summarise(count = n())
+
+# Plot geographic distribution
+ggplot(geo_distribution, aes(x = continent, y = count, fill = continent)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Geographic Distribution of Customers", x = "Continent", y = "Number of Sessions") +
+  theme_minimal()
+
+```
+```{r}
+# Analyze average pageviews per customer session
+session_activity <- raw_data %>%
+  group_by(custId) %>%
+  summarise(avg_pageviews = mean(pageviews, na.rm = TRUE))
+
+# Plot average pageviews
+ggplot(session_activity, aes(x = avg_pageviews)) +
+  geom_histogram(binwidth = 1, fill = "green", alpha = 0.7, color = "black") +
+  labs(title = "Average Pageviews per Session", x = "Average Pageviews", y = "Number of Customers") +
+  theme_minimal()
+
+```
+
+
+```{r}
+raw_data <- raw_data %>%
+  mutate(visitStartTime = as_datetime(visitStartTime))
+
+# Extract hour of visit start time
+raw_data <- raw_data %>%
+  mutate(visit_hour = hour(visitStartTime))
+
+# Plot visit start time frequency by hour
+ggplot(raw_data, aes(x = visit_hour)) +
+  geom_histogram(binwidth = 1, fill = "blue", alpha = 0.7, color = "black") +
+  labs(title = "Visit Start Time Frequency", x = "Hour of the Day", y = "Frequency of Visits") +
+  theme_minimal()
+```
+```{r}
+visit_start_by_continent <- raw_data %>%
+  group_by(continent, visit_hour) %>%
+  summarise(frequency = n()) %>%
+  ungroup()
+
+# Create separate plots for each continent
+continents <- unique(visit_start_by_continent$continent)
+
+# Loop through each continent and create individual plots
+for (continent in continents) {
+  continent_data <- visit_start_by_continent %>%
+    filter(continent == !!continent)
+  
+  # Plot visit start time frequency for the specific continent
+  plot <- ggplot(continent_data, aes(x = visit_hour, y = frequency)) +
+    geom_bar(stat = "identity", fill = "blue", alpha = 0.7, color = "black") +
+    labs(title = paste("Visit Start Time Frequency -", continent), 
+         x = "Hour of the Day", 
+         y = "Frequency of Visits") +
+    theme_minimal()
+  
+  # Print the plot
+  print(plot)
+}
+
+```
+
+
 
 
 
