@@ -246,22 +246,20 @@ data_clean = raw_data_typed %>%
   filter(!is.na(pageviews))
 ```
 
-Collapse high cardinality factors, weighted based on revenue.
+Collapse high cardinality factors, weighted based on revenue. Remove redundant
+geographic features. 
 ```{r, echo=F}
 ## strategy->collapse factors based on proportion of revenue so most important
 ## levels are preserved
-clean_data = clean_data %>% 
+data_clean = data_clean %>% 
+  select(!c("continent", "subContinent", "city", "metro", "region")) %>%
   mutate(browser=fct_lump_n(browser, w=revenue, n=4),
          operatingSystem=fct_lump_n(operatingSystem, w=revenue, n=5),
          source=fct_lump_lowfreq(source, w=revenue),
-         country=fct_lump_n(country, w=revenue, n=5)) 
-clean_data %>% str()
+         country=fct_lump_n(country, n=14),
+         topLevelDomain=fct_lump(topLevelDomain, w=revenue, n=4)) 
+data_clean %>% str()
 ```
-
-
-
-
-
 
 
 
@@ -355,7 +353,7 @@ cat("95% Confidence Interval for Repeat Visitors Revenue: [", ci_repeat[1], ",",
 
 ```
 
-There's a diference between who's a new clients who's not 
+There's a difference between who's a new clients who's not 
 
 ```{r}
 
