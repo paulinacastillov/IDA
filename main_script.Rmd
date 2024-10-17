@@ -371,32 +371,98 @@ ggplot(visit_frequency, aes(x = total_visits)) +
   theme_minimal()
 
 ```
-
 ```{r}
-# Device usage by customers
-device_usage <- raw_data %>%
-  group_by(deviceCategory) %>%
-  summarise(count = n())
+# Group by customer ID and calculate total visits per customer
+visit_frequency <- raw_data %>%
+  group_by(custId) %>%
+  summarise(total_visits = n())
 
-# Plot device usage
-ggplot(device_usage, aes(x = deviceCategory, y = count, fill = deviceCategory)) +
-  geom_bar(stat = "identity") +
-  labs(title = "Device Usage by Customers", x = "Device Category", y = "Number of Sessions") +
-  theme_minimal()
+# Calculate the percentage of the data for each total visit count
+visit_percentage <- visit_frequency %>%
+  group_by(total_visits) %>%
+  summarise(count = n()) %>%
+  mutate(percentage = (count / sum(count)) * 100) %>%
+  arrange(desc(percentage))
+
+# Get the top 5 most frequent visit counts by percentage
+top_5_visits <- visit_percentage %>%
+  top_n(5, wt = percentage)
+
+# Print the top 5 most frequent visit counts with their percentages
+print(top_5_visits)
+
 
 ```
-```{r}
-# Geographic distribution (example by continent)
-geo_distribution <- raw_data %>%
-  group_by(continent) %>%
-  summarise(count = n())
 
-# Plot geographic distribution
-ggplot(geo_distribution, aes(x = continent, y = count, fill = continent)) +
-  geom_bar(stat = "identity") +
-  labs(title = "Geographic Distribution of Customers", x = "Continent", y = "Number of Sessions") +
+```{r}
+# Create a new column to indicate whether revenue was generated in the session
+raw_data <- raw_data %>%
+  mutate(revenue_status = ifelse(revenue > 0, "Purchase", "No Purchase"))
+
+# Group by device category and revenue status and calculate the count
+device_usage <- raw_data %>%
+  group_by(deviceCategory, revenue_status) %>%
+  summarise(count = n()) %>%
+  ungroup()
+
+# Plot device usage with a stacked bar plot showing total number of sessions
+ggplot(device_usage, aes(x = deviceCategory, y = count, fill = revenue_status)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(title = "Device Usage by Customers (Purchase vs No Purchase)", 
+       x = "Device Category", 
+       y = "Number of Sessions") +
+  scale_fill_manual(values = c("Purchase" = "black", "No Purchase" = "grey")) +
   theme_minimal()
 
+# Add rate information
+device_usage_rate <- raw_data %>%
+  group_by(deviceCategory) %>%
+  summarise(
+    total_sessions = n(),
+    purchase_sessions = sum(revenue > 0),
+    no_purchase_sessions = sum(revenue == 0),
+    purchase_rate = purchase_sessions / total_sessions * 100,
+    no_purchase_rate = no_purchase_sessions / total_sessions * 100
+  )
+
+# Print the rate table
+print(device_usage_rate)
+```
+
+
+```{r}
+# Create a new column to indicate whether revenue was generated in the session
+raw_data <- raw_data %>%
+  mutate(revenue_status = ifelse(revenue > 0, "Purchase", "No Purchase"))
+
+# Group by continent and revenue status and calculate the count
+geo_distribution <- raw_data %>%
+  group_by(continent, revenue_status) %>%
+  summarise(count = n()) %>%
+  ungroup()
+
+# Plot geographic distribution with a stacked bar plot showing total number of sessions
+ggplot(geo_distribution, aes(x = continent, y = count, fill = revenue_status)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(title = "Geographic Distribution of Customers (Purchase vs No Purchase)", 
+       x = "Continent", 
+       y = "Number of Sessions") +
+  scale_fill_manual(values = c("Purchase" = "black", "No Purchase" = "grey")) +
+  theme_minimal()
+
+# Add rate information
+geo_distribution_rate <- raw_data %>%
+  group_by(continent) %>%
+  summarise(
+    total_sessions = n(),
+    purchase_sessions = sum(revenue > 0),
+    no_purchase_sessions = sum(revenue == 0),
+    purchase_rate = purchase_sessions / total_sessions * 100,
+    no_purchase_rate = no_purchase_sessions / total_sessions * 100
+  )
+
+# Print the rate table
+print(geo_distribution_rate)
 ```
 ```{r}
 # Analyze average pageviews per customer session
@@ -413,20 +479,7 @@ ggplot(session_activity, aes(x = avg_pageviews)) +
 ```
 
 
-```{r}
-raw_data <- raw_data %>%
-  mutate(visitStartTime = as_datetime(visitStartTime))
 
-# Extract hour of visit start time
-raw_data <- raw_data %>%
-  mutate(visit_hour = hour(visitStartTime))
-
-# Plot visit start time frequency by hour
-ggplot(raw_data, aes(x = visit_hour)) +
-  geom_histogram(binwidth = 1, fill = "blue", alpha = 0.7, color = "black") +
-  labs(title = "Visit Start Time Frequency", x = "Hour of the Day", y = "Frequency of Visits") +
-  theme_minimal()
-```
 ```{r}
 visit_start_by_continent <- raw_data %>%
   group_by(continent, visit_hour) %>%
@@ -457,6 +510,43 @@ for (continent in continents) {
 
 
 
+```{r}
+# Convert visitStartTime to a readable date-time format (assuming visitStartTime is in UNIX timestamp format)
+raw_data <- raw_data %>%
+  mutate(visitStartTime = as_datetime(visitStartTime))
+
+# Extract hour of visit start time and create revenue status column
+raw_data <- raw_data %>%
+  mutate(visit_hour = hour(visitStartTime),
+         revenue_status = ifelse(revenue > 0, "Purchase", "No Purchase"))
+
+# Group by continent, visit hour, and revenue status, and calculate the frequency
+visit_start_by_continent <- raw_data %>%
+  group_by(continent, visit_hour, revenue_status) %>%
+  summarise(frequency = n()) %>%
+  ungroup()
+
+# Create separate plots for each continent
+continents <- unique(visit_start_by_continent$continent)
+
+# Loop through each continent and create individual plots with stacked bars for Purchase vs No Purchase
+for (continent in continents) {
+  continent_data <- visit_start_by_continent %>%
+    filter(continent == !!continent)
+  
+  # Plot visit start time frequency for the specific continent with Purchase and No Purchase stacked
+  plot <- ggplot(continent_data, aes(x = visit_hour, y = frequency, fill = revenue_status)) +
+    geom_bar(stat = "identity", position = "stack") +
+    labs(title = paste("Visit Start Time Frequency -", continent), 
+         x = "Hour of the Day", 
+         y = "Number of Sessions") +
+    scale_fill_manual(values = c("Purchase" = "black", "No Purchase" = "grey")) +
+    theme_minimal()
+  
+  # Print the plot for each continent
+  print(plot)
+}
+```
 
 
 
