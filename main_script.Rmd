@@ -5,6 +5,7 @@ date: "`r Sys.Date()`"
 output: pdf_document
 ---
 
+---- DELETE ----
 Git Reference 
     git init
     git add .
@@ -21,6 +22,9 @@ options(digits=3)
 options(scipen=99)
 theme_set(theme_bw())
 ```
+
+
+# ---- Data Understanding ----
 
 
 ```{r, message=FALSE, echo=F}
@@ -164,8 +168,8 @@ pivot_wider(names_from = stat, values_from = value) %>%
 mutate(missing = as.numeric(missing),
          unique = as.numeric(unique),
          n = as.numeric(n)) %>%
-mutate(missing_pct = 100*as.numeric(missing)/n,
-unique_pct = 100*unique/n) %>%
+mutate(missing_pct = 100*(missing/n),
+unique_pct = 100*(unique/n)) %>%
 select(variable, n, missing, missing_pct, unique, unique_pct, everything())
 
 nonumericSummaryFinal %>% kable()
@@ -175,13 +179,14 @@ of missing values. These will likely need to be dropped or handled as being
 another category in the data. It's possible that some of these sparse fields
 do a good job of explaining revenue. 
 
+
 ###########################
 Let's view some plots now:
 
 ```{r, echo=F}
 raw_data_typed %>%
   select_if(is.numeric) %>%
-  ggpairs()
+  ggcorr() 
 ```
 Definitely some extreme behavior here. Pageviews seems mildly correlated with
 revenue but the others we can't tell at the transactional level.
@@ -204,11 +209,11 @@ raw_data_typed %>%
   summarize(revenue = sum(revenue)) %>%
   filter(revenue>0)  %>%
   ggplot(aes(log(revenue))) +
-  geom_histogram() +
+  geom_histogram(bins=30) +
   labs(title="Natural Log Revenue for Customers that Bought")
 ```
 So essentially the log-adjusted revenue is normal looking. There are now two big
-facts: only about 1 in 10 customers actually every buys anything, but those 
+facts: only about 1 in 10 customers actually ever buys anything, but those 
 customers that do buy something follows a log adjusted normal distribution. Now
 the question is which factors will predict a customer will buy anything at all?
 
@@ -221,6 +226,7 @@ raw_data_typed %>%
   summarize(bought = mean(bought)) %>%
   ggplot(aes(x=continent, y=bought)) +
   geom_col() +
+  scale_y_continuous(limits = c(0,0.50)) +
   labs(title="Proportion of Customers that Bought by Continent")
 ```
 From this simple bar chart, we see clearly that people from the Americas are far 
@@ -228,8 +234,40 @@ more likely to buy something over the course of the year than from other
 continents. 
 
 
+# ---- Data Preparation & Feature Engineering ----
 
-Screen out poor quality variables (Do after data quality checks)
+
+Cast NAs in factors as extra level to preserve information & drop cases of
+no page views. There are only 8 cases of no pageviews and they didn't 
+buy anything.
+```{r, echo=F}
+data_clean = raw_data_typed %>%
+  mutate_if(is.factor, fct_na_value_to_level) %>%
+  filter(!is.na(pageviews))
+```
+
+Collapse high cardinality factors, weighted based on revenue.
+```{r, echo=F}
+## strategy->collapse factors based on proportion of revenue so most important
+## levels are preserved
+clean_data = clean_data %>% 
+  mutate(browser=fct_lump_n(browser, w=revenue, n=4),
+         operatingSystem=fct_lump_n(operatingSystem, w=revenue, n=5),
+         source=fct_lump_lowfreq(source, w=revenue),
+         country=fct_lump_n(country, w=revenue, n=5)) 
+clean_data %>% str()
+```
+
+
+
+
+
+
+
+
+
+# ---- EXTRA CODE ---- 
+
 ```{r, echo=F}
 cols_to_keep = c('date','channelGrouping','visitStartTime','visitNumber',
 'timeSinceLastVisit','browser','operatingSystem','isMobile','deviceCategory',
@@ -242,18 +280,6 @@ clean_data = raw_data_typed %>%
 
 ```
 
-
-Perform some factor collapsing (do after data quality checks)
-```{r, echo=F}
-# browser, operatingSystem, source, country, topLevelDomain need to be collapsed
-## strategy->collapse factors based on proportion of revenue
-clean_data = clean_data %>% 
-  mutate(browser=fct_lump_n(browser, w=logRevenue, n=4),
-         operatingSystem=fct_lump_n(operatingSystem, w=logRevenue, n=5),
-         source=fct_lump_lowfreq(source, w=logRevenue),
-         country=fct_lump_n(country, w=logRevenue, n=5)) 
-clean_data %>% str()
-```
 
 
 
