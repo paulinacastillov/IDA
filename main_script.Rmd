@@ -243,40 +243,66 @@ buy anything.
 ```{r, echo=F}
 data_clean = raw_data_typed %>%
   mutate_if(is.factor, fct_na_value_to_level) %>%
-  filter(!is.na(pageviews))
+  filter(!is.na(pageviews)) %>%
+  replace_na(list(bounces=0,newVisits=0))
 ```
 
 Collapse high cardinality factors, weighted based on revenue. Remove redundant
-geographic features. 
+geographic features. Remove useless columns.
 ```{r, echo=F}
 ## strategy->collapse factors based on proportion of revenue so most important
 ## levels are preserved
 data_clean = data_clean %>% 
-  select(!c("continent", "subContinent", "city", "metro", "region")) %>%
+  select(!c("continent", "subContinent", "city", "metro", "region",
+            "adwordsClickInfo.isVideoAd","adwordsClickInfo.adNetworkType",
+            )) %>%
   mutate(browser=fct_lump_n(browser, w=revenue, n=4),
          operatingSystem=fct_lump_n(operatingSystem, w=revenue, n=5),
          source=fct_lump_lowfreq(source, w=revenue),
          country=fct_lump_n(country, n=14),
          topLevelDomain=fct_lump(topLevelDomain, w=revenue, n=4)) 
-data_clean %>% str()
 ```
 
+
+Add new derived features
+```{r, echo=F}
+data_clean = data_clean %>%
+  mutate(month = factor(month(date)),
+         visit_hour = hour(visitStartTime))
+```
+
+
+Group by customer ID & compute log transformation
+```{r, echo=F}
+getMode <- function(x) {
+  unique_x <- unique(x)
+  tabulated_x <- tabulate(match(x, unique_x))
+  mode_value <- unique_x[which.max(tabulated_x)]
+  return(mode_value) }
+  
+data_aggregated = data_clean %>%
+    group_by(custId) %>%
+    reframe(across(where(is.factor), getMode),
+            across(where(is.logical), getMode),
+            visitNumber = max(visitNumber),
+            timeSinceLastVisit = mean(timeSinceLastVisit), ##not sure about average
+            pageviews = sum(pageviews),
+            revenue = sum(revenue),
+            visit_hour = getMode(visit_hour)
+            )
+```
+
+```{r, echo=F}
+data_aggregated = data_aggregated %>%
+  mutate(log_revenue = log(revenue+1))
+
+data_aggregated %>% str()
+```
 
 
 
 # ---- EXTRA CODE ---- 
 
-```{r, echo=F}
-cols_to_keep = c('date','channelGrouping','visitStartTime','visitNumber',
-'timeSinceLastVisit','browser','operatingSystem','isMobile','deviceCategory',
-'continent','country','campaign','source','medium','isTrueDirect',
-'adwordsClickInfo.slot','pageviews','bounces','revenue')
-
-clean_data = raw_data_typed %>%
-  select(all_of(cols_to_keep)) %>%
-  mutate(month = factor(month(date)))
-
-```
 
 
 # ----- PAULINA SOME EXPERIMENTS --------
