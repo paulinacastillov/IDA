@@ -478,33 +478,7 @@ ggplot(session_activity, aes(x = avg_pageviews)) +
 
 
 
-```{r}
-visit_start_by_continent <- raw_data %>%
-  group_by(continent, visit_hour) %>%
-  summarise(frequency = n()) %>%
-  ungroup()
 
-# Create separate plots for each continent
-continents <- unique(visit_start_by_continent$continent)
-
-# Loop through each continent and create individual plots
-for (continent in continents) {
-  continent_data <- visit_start_by_continent %>%
-    filter(continent == !!continent)
-  
-  # Plot visit start time frequency for the specific continent
-  plot <- ggplot(continent_data, aes(x = visit_hour, y = frequency)) +
-    geom_bar(stat = "identity", fill = "blue", alpha = 0.7, color = "black") +
-    labs(title = paste("Visit Start Time Frequency -", continent), 
-         x = "Hour of the Day", 
-         y = "Frequency of Visits") +
-    theme_minimal()
-  
-  # Print the plot
-  print(plot)
-}
-
-```
 
 
 
@@ -545,6 +519,5 @@ for (continent in continents) {
   print(plot)
 }
 ```
-
 
 
