@@ -29,8 +29,12 @@ theme_set(theme_bw())
 
 ```{r, message=FALSE, echo=F}
 ## load data
+raw_data_test = read_csv('Test/Test.csv',show_col_types = FALSE)
 raw_data = read_csv('Train/Train.csv',show_col_types = FALSE)
 str(raw_data, give.attr = FALSE)
+```
+```{r}
+str(raw_data_test, give.attr = FALSE)
 ```
 
 Redefine datatypes:
@@ -43,6 +47,10 @@ num_vars = c('visitNumber',
 'timeSinceLastVisit',
 'pageviews','revenue')
 
+num_vars_test = c('visitNumber',
+'timeSinceLastVisit',
+'pageviews')
+
 log_vars = c('isMobile',
 'isTrueDirect', 'adwordsClickInfo.isVideoAd',
 'bounces', 'newVisits','adwordsClickInfo.adNetworkType')
@@ -50,6 +58,7 @@ log_vars = c('isMobile',
 date_vars = c('date','visitStartTime')
 
 factor_vars = setdiff(names(raw_data), c(chr_vars,num_vars,log_vars,date_vars))
+factor_vars_test = setdiff(names(raw_data_test), c(chr_vars,num_vars,log_vars,date_vars))
 
 raw_data_typed = raw_data %>%
   mutate_at(chr_vars, as.character) %>%
@@ -58,7 +67,18 @@ raw_data_typed = raw_data %>%
   mutate_at(date_vars, as.Date) %>%
   mutate_at(factor_vars, as_factor) 
 
+raw_data_typed_test = raw_data_test %>%
+  mutate_at(chr_vars, as.character) %>%
+  mutate_at(num_vars_test, as.numeric) %>%
+  mutate_at(log_vars, as.logical) %>%
+  mutate_at(date_vars, as.Date) %>%
+  mutate_at(factor_vars_test, as_factor) 
+
 raw_data_typed %>% 
+  summarise_all(class) %>% 
+  gather()
+
+raw_data_typed_test %>% 
   summarise_all(class) %>% 
   gather()
 ```
@@ -245,6 +265,12 @@ data_clean = raw_data_typed %>%
   mutate_if(is.factor, fct_na_value_to_level) %>%
   filter(!is.na(pageviews)) %>%
   replace_na(list(bounces=0,newVisits=0))
+
+## test
+data_clean_test = raw_data_typed_test %>%
+  mutate_if(is.factor, fct_na_value_to_level) %>%
+  filter(!is.na(pageviews)) %>%
+  replace_na(list(bounces=0,newVisits=0))
 ```
 
 Collapse high cardinality factors, weighted based on revenue. Remove redundant
@@ -261,12 +287,41 @@ data_clean = data_clean %>%
          source=fct_lump_lowfreq(source, w=revenue),
          country=fct_lump_n(country, n=14),
          topLevelDomain=fct_lump(topLevelDomain, w=revenue, n=4)) 
+
+
+
+```
+```{r}
+
+## test
+
+# saving the previous levels based on revenue from training because we dont have reveune in this data
+browser_levels <- levels(data_clean$browser)
+operating_system_levels <- levels(data_clean$operatingSystem)
+source_levels <- levels(data_clean$source)
+country_levels <- levels(data_clean$country)
+top_level_domain_levels <- levels(data_clean$topLevelDomain)
+
+data_clean_test = data_clean_test %>% 
+  select(!c("continent", "subContinent", "city", "metro", "region",
+            "adwordsClickInfo.isVideoAd","adwordsClickInfo.adNetworkType",
+            )) %>%
+
+  mutate(browser = factor(browser, levels = browser_levels) %>% fct_na_value_to_level("Other"),
+         operatingSystem = factor(operatingSystem, levels = operating_system_levels) %>% fct_na_value_to_level("Other"),
+         source = factor(source, levels = source_levels) %>% fct_na_value_to_level("Other"),
+         country = factor(country, levels = country_levels) %>% fct_na_value_to_level("Other"),
+         topLevelDomain = factor(topLevelDomain, levels = top_level_domain_levels) %>% fct_na_value_to_level("Other"))
 ```
 
 
 Add new derived features
 ```{r, echo=F}
 data_clean = data_clean %>%
+  mutate(month = factor(month(date)),
+         visit_hour = hour(visitStartTime))
+
+data_clean_test = data_clean_test %>%
   mutate(month = factor(month(date)),
          visit_hour = hour(visitStartTime))
 ```
@@ -290,6 +345,23 @@ data_aggregated = data_clean %>%
             revenue = sum(revenue),
             visit_hour = getMode(visit_hour)
             )
+
+## test 
+
+
+  
+data_aggregated_test = data_clean_test %>%
+    group_by(custId) %>%
+    reframe(across(where(is.factor), getMode),
+            across(where(is.logical), getMode),
+            visitNumber = max(visitNumber),
+            timeSinceLastVisit = mean(timeSinceLastVisit), ##not sure about average
+            pageviews = sum(pageviews),
+            ,
+            visit_hour = getMode(visit_hour)
+            )
+
+
 ```
 
 ```{r, echo=F}
@@ -297,6 +369,7 @@ data_aggregated = data_aggregated %>%
   mutate(log_revenue = log(revenue+1))
 
 data_aggregated %>% str()
+
 ```
 
 
