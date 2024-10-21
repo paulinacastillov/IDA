@@ -394,7 +394,20 @@ ols_model <- train(log_revenue ~ . - custId,
 ols_model
 ```
 
+Lasso model requires low frequency factors to be dropped
+```{r, echo=F}
 
+lasso_model <- train(log_revenue ~ channelGrouping + browser + operatingSystem +
+                       country + month + visitNumber + timeSinceLastVisit +
+                       pageviews + visit_hour, 
+                           data = data_aggregated, 
+                   method = "lasso", 
+                   tuneGrid = expand.grid(fraction = seq(0.1,1, by=0.1)),
+                   trControl = train_control,
+                   metric = "RMSE")
+ 
+lasso_model
+```
 
 
 # ---- EXTRA CODE ---- 
