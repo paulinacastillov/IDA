@@ -47,20 +47,20 @@ log_vars = c('isMobile',
 'isTrueDirect', 'adwordsClickInfo.isVideoAd',
 'bounces', 'newVisits','adwordsClickInfo.adNetworkType')
 
-date_vars = c('date','visitStartTime')
+date_vars = c('date')
 
-factor_vars = setdiff(names(raw_data), c(chr_vars,num_vars,log_vars,date_vars))
+datetime_vars = c('visitStartTime')
+
+factor_vars = setdiff(names(raw_data), c(chr_vars,num_vars,log_vars,date_vars,datetime_vars))
 
 raw_data_typed = raw_data %>%
   mutate_at(chr_vars, as.character) %>%
   mutate_at(num_vars, as.numeric) %>%
   mutate_at(log_vars, as.logical) %>%
   mutate_at(date_vars, as.Date) %>%
+  mutate_at(datetime_vars, as_datetime) %>%
   mutate_at(factor_vars, as_factor) 
 
-raw_data_typed %>% 
-  summarise_all(class) %>% 
-  gather()
 ```
 
 Numeric Data Quality Report:
@@ -294,11 +294,47 @@ data_aggregated = data_clean %>%
 
 ```{r, echo=F}
 data_aggregated = data_aggregated %>%
-  mutate(log_revenue = log(revenue+1))
+  mutate(log_revenue = log(revenue+1)) %>%
+  select(-revenue)
 
 data_aggregated %>% str()
 ```
 
+# ---- Modeling ---- #
+
+Model OLS using stepwise selection to reduce # of factor vars
+```{r, echo=F}
+
+sampled_data = data_aggregated %>% slice_sample(prop=0.5)
+
+train_control <- trainControl(method = "cv", number = 5)
+
+ols_model <- train(log_revenue ~ . - custId, 
+                           data = sampled_data, 
+                   method = "leapSeq", 
+                   tuneGrid = expand.grid(nvmax = 1:18),
+                   trControl = train_control,
+                   metric = "RMSE")
+ 
+ols_model
+```
+
+
+Model with LASSO for comparision
+```{r, echo=F}
+
+#sampled_data = data_aggregated %>% slice_sample(n=10000)
+
+#train_control <- trainControl(method = "cv", number = 5)
+
+lasso_model <- train(log_revenue ~ . - custId, 
+                           data = data_aggregated, 
+                   method = "lasso", 
+                   tuneGrid = expand.grid(fraction = seq(0.1,1, by=0.1)),
+                   trControl = train_control)
+ 
+lasso_model
+```
 
 
 # ---- EXTRA CODE ---- 
