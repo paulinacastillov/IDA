@@ -16,7 +16,7 @@ Git Reference
 
 ```{r, results="hide", message=FALSE, echo=F}
 ## load/install packages
-packages = c("caret","car","mice", "knitr","tidyverse", "GGally")
+packages = c("caret", "knitr","tidyverse", "GGally")
 lapply(packages, require, character.only = TRUE)
 options(digits=3)
 options(scipen=99)
@@ -264,33 +264,34 @@ no page views. There are only 8 cases of no pageviews and they didn't
 buy anything.
 ```{r, echo=F}
 data_clean = raw_data_typed %>%
-  mutate_if(is.factor, fct_na_value_to_level) %>%
+  mutate_if(is.factor, fct_na_value_to_level, level="Other") %>%
   filter(!is.na(pageviews)) %>%
   replace_na(list(bounces=0,newVisits=0))
 
 ## test
 data_clean_test = raw_data_typed_test %>%
-  mutate_if(is.factor, fct_na_value_to_level) %>%
+  mutate_if(is.factor, fct_na_value_to_level, level="Other") %>%
   filter(!is.na(pageviews)) %>%
   replace_na(list(bounces=0,newVisits=0))
 ```
 
-Collapse high cardinality factors, weighted based on revenue. Remove redundant
+Collapse high cardinality factors. Remove redundant
 geographic features. Remove useless columns.
 ```{r, echo=F}
-## strategy->collapse factors based on proportion of revenue so most important
-## levels are preserved
-data_clean = data_clean %>% 
-  select(!c("continent", "subContinent", "city", "metro", "region",
+fcts_drop = c("continent", "subContinent", "city", "metro", "region",
             "adwordsClickInfo.isVideoAd","adwordsClickInfo.adNetworkType",
-            )) %>%
-  mutate(browser=fct_lump_n(browser, w=revenue, n=4),
-         operatingSystem=fct_lump_n(operatingSystem, w=revenue, n=5),
-         source=fct_lump_lowfreq(source, w=revenue),
-         country=fct_lump_n(country, n=14),
-         topLevelDomain=fct_lump(topLevelDomain, w=revenue, n=4)) 
+            "adwordsClickInfo.page", "adwordsClickInfo.slot",
+            "campaign", "topLevelDomain"
+            )
 
-
+data_clean = data_clean %>% 
+  select(!all_of(fcts_drop)) %>%
+  mutate(browser=fct_lump_n(browser, n=2),
+         operatingSystem=fct_lump_lowfreq(operatingSystem),
+         source=fct_lump_lowfreq(source),
+         country=fct_lump_lowfreq(country),
+         channelGrouping=fct_lump_lowfreq(channelGrouping),
+         deviceCategory=fct_lump_lowfreq(deviceCategory)) 
 
 ```
 ```{r}
@@ -302,22 +303,21 @@ browser_levels <- levels(data_clean$browser)
 operating_system_levels <- levels(data_clean$operatingSystem)
 source_levels <- levels(data_clean$source)
 country_levels <- levels(data_clean$country)
-top_level_domain_levels <- levels(data_clean$topLevelDomain)
+device_category_levels <- levels(data_clean$deviceCategory)
 
 data_clean_test = data_clean_test %>% 
-  select(!c("continent", "subContinent", "city", "metro", "region",
-            "adwordsClickInfo.isVideoAd","adwordsClickInfo.adNetworkType",
-            )) %>%
+  select(!all_of(fcts_drop)) %>%
 
   mutate(browser = factor(browser, levels = browser_levels) %>% fct_na_value_to_level("Other"),
          operatingSystem = factor(operatingSystem, levels = operating_system_levels) %>% fct_na_value_to_level("Other"),
          source = factor(source, levels = source_levels) %>% fct_na_value_to_level("Other"),
          country = factor(country, levels = country_levels) %>% fct_na_value_to_level("Other"),
-         topLevelDomain = factor(topLevelDomain, levels = top_level_domain_levels) %>% fct_na_value_to_level("Other"))
+         deviceCategory = factor(deviceCategory, levels = device_category_levels) %>% fct_na_value_to_level("Other")
+         )
 ```
 
 
-Add new derived features
+Add new derived features.
 ```{r, echo=F}
 data_clean = data_clean %>%
   mutate(month = factor(month(date)),
@@ -363,7 +363,8 @@ data_aggregated_test = data_clean_test %>%
             visit_hour = getMode(visit_hour)
             )
 
-
+## call garbage collection after that massive aggregation
+gc()
 ```
 
 ```{r, echo=F}
@@ -380,33 +381,47 @@ data_aggregated %>% str()
 Model OLS using stepwise selection to reduce # of factor vars
 ```{r, echo=F}
 
-sampled_data = data_aggregated %>% slice_sample(prop=0.5)
+## downsample to 1/2 of training data to not overload memory
+data_sampled = data_aggregated %>% slice_sample(prop=0.50)
 
 train_control <- trainControl(method = "cv", number = 5)
 
 ols_model <- train(log_revenue ~ . - custId, 
-                           data = sampled_data, 
+                           data = data_sampled, 
                    method = "leapSeq", 
-                   tuneGrid = expand.grid(nvmax = 1:18),
+                   tuneGrid = expand.grid(nvmax = 1:16),
                    trControl = train_control,
                    metric = "RMSE")
  
 ols_model
 ```
 
-Lasso model requires low frequency factors to be dropped
+Lasso model:
 ```{r, echo=F}
 
-lasso_model <- train(log_revenue ~ channelGrouping + browser + operatingSystem +
-                       country + month + visitNumber + timeSinceLastVisit +
-                       pageviews + visit_hour, 
-                           data = data_aggregated, 
+lasso_model <- train(log_revenue ~ . - custId,
+                           data = data_sampled, 
                    method = "lasso", 
                    tuneGrid = expand.grid(fraction = seq(0.1,1, by=0.1)),
                    trControl = train_control,
                    metric = "RMSE")
  
 lasso_model
+```
+
+Elastic net:
+```{r, echo=F}
+
+enet_model <- train(log_revenue ~ . - custId,
+                           data = data_sampled, 
+                   method = "enet", 
+                   tuneGrid = expand.grid(fraction = seq(0, 1, by=0.1),
+                                          lambda = seq(0, 1, by=0.1)),
+                   trControl = train_control,
+                   preProcess = c("center","scale"),
+                   metric = "RMSE")
+ 
+enet_model
 ```
 
 
