@@ -16,7 +16,7 @@ Git Reference
 
 ```{r, results="hide", message=FALSE, echo=F}
 ## load/install packages
-packages = c("caret", "knitr","tidyverse", "GGally")
+packages = c("caret", "caretEnsemble", "car", "knitr","tidyverse", "GGally")
 lapply(packages, require, character.only = TRUE)
 options(digits=3)
 options(scipen=99)
@@ -287,10 +287,10 @@ fcts_drop = c("continent", "subContinent", "city", "metro", "region",
 data_clean = data_clean %>% 
   select(!all_of(fcts_drop)) %>%
   mutate(browser=fct_lump_n(browser, n=2),
-         operatingSystem=fct_lump_lowfreq(operatingSystem),
+         operatingSystem=fct_lump_n(operatingSystem, n=4),
          source=fct_lump_lowfreq(source),
-         country=fct_lump_lowfreq(country),
-         channelGrouping=fct_lump_lowfreq(channelGrouping),
+         country=fct_lump_n(country, n=4),
+         channelGrouping=fct_lump_n(channelGrouping, n=4),
          deviceCategory=fct_lump_lowfreq(deviceCategory)) 
 
 ```
@@ -350,8 +350,6 @@ data_aggregated = data_clean %>%
 
 ## test 
 
-
-  
 data_aggregated_test = data_clean_test %>%
     group_by(custId) %>%
     reframe(across(where(is.factor), getMode),
@@ -373,8 +371,20 @@ data_aggregated = data_aggregated %>%
   select(-revenue)
 
 data_aggregated %>% str()
+```
+
+Perform power transformations on numeric variables:
+```{r, echo=F}
+pTransf = function(x) {
+  p = powerTransform(x ~ 1, family="yjPower")
+  return(yjPower(x,p1$lambda))}
+
+data_aggregated = data_aggregated %>%
+  mutate(across(c("visitNumber","timeSinceLastVisit","pageviews"), pTransf))
 
 ```
+
+
 
 # ---- Modeling ---- #
 
@@ -418,7 +428,7 @@ enet_model <- train(log_revenue ~ . - custId,
                    tuneGrid = expand.grid(fraction = seq(0, 1, by=0.1),
                                           lambda = seq(0, 1, by=0.1)),
                    trControl = train_control,
-                   preProcess = c("center","scale"),
+                   preProcess = c("scale"),
                    metric = "RMSE")
  
 enet_model
