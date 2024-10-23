@@ -18,8 +18,8 @@ Git Reference
 ## load/install packages
 packages = c("caret", "caretEnsemble", "car", "knitr","tidyverse", "GGally")
 lapply(packages, require, character.only = TRUE)
-options(digits=3)
 options(scipen=99)
+#options(digits=10)
 theme_set(theme_bw())
 ```
 
@@ -33,9 +33,7 @@ raw_data_test = read_csv('Test/Test.csv',show_col_types = FALSE)
 raw_data = read_csv('Train/Train.csv',show_col_types = FALSE)
 str(raw_data, give.attr = FALSE)
 ```
-```{r}
-str(raw_data_test, give.attr = FALSE)
-```
+
 
 Redefine datatypes:
 ```{r, echo=F}
@@ -116,7 +114,6 @@ numericSummary = cbind(
 stat=c("n","unique","missing","mean","min","Q1","median","Q3","max","sd"),
 numericSummary)
 
-#glimpse(numericSummary)
 
 numericSummaryFinal = numericSummary %>%
 pivot_longer(-stat, names_to = "variable", values_to = "value") %>%
@@ -124,7 +121,7 @@ pivot_wider(names_from = stat, values_from = value) %>%
 mutate(missing_pct = 100*missing/n, unique_pct = 100*unique/n) %>%
 select(variable, n, missing, missing_pct, unique, unique_pct, everything())
 
-numericSummaryFinal %>% kable()
+numericSummaryFinal
 ```
 For the numeric variables, it looks like the there aren't many issues with 
 missing values but there are definitely some outliers to look out for here. 
@@ -194,7 +191,7 @@ mutate(missing_pct = 100*(missing/n),
 unique_pct = 100*(unique/n)) %>%
 select(variable, n, missing, missing_pct, unique, unique_pct, everything())
 
-nonumericSummaryFinal %>% kable()
+nonumericSummaryFinal
 ```
 For factor data we can see a fair number of variables with large proportions 
 of missing values. These will likely need to be dropped or handled as being 
@@ -258,6 +255,12 @@ continents.
 
 # ---- Data Preparation & Feature Engineering ----
 
+Parallel processing package to speed things up (don't run if low memory)
+```{r, echo=F}
+library("doParallel")
+cl <- makePSOCKcluster(6)
+registerDoParallel(cl)
+```
 
 Cast NAs in factors as extra level to preserve information & drop cases of
 no page views. There are only 8 cases of no pageviews and they didn't 
@@ -274,48 +277,6 @@ data_clean_test = raw_data_typed_test %>%
   filter(!is.na(pageviews)) %>%
   replace_na(list(bounces=0,newVisits=0))
 ```
-
-Collapse high cardinality factors. Remove redundant
-geographic features. Remove useless columns.
-```{r, echo=F}
-fcts_drop = c("continent", "subContinent", "city", "metro", "region",
-            "adwordsClickInfo.isVideoAd","adwordsClickInfo.adNetworkType",
-            "adwordsClickInfo.page", "adwordsClickInfo.slot",
-            "campaign", "topLevelDomain"
-            )
-
-data_clean = data_clean %>% 
-  select(!all_of(fcts_drop)) %>%
-  mutate(browser=fct_lump_n(browser, n=2),
-         operatingSystem=fct_lump_n(operatingSystem, n=4),
-         source=fct_lump_lowfreq(source),
-         country=fct_lump_n(country, n=4),
-         channelGrouping=fct_lump_n(channelGrouping, n=4),
-         deviceCategory=fct_lump_lowfreq(deviceCategory)) 
-
-```
-```{r}
-
-## test
-
-# saving the previous levels based on revenue from training because we dont have reveune in this data
-browser_levels <- levels(data_clean$browser)
-operating_system_levels <- levels(data_clean$operatingSystem)
-source_levels <- levels(data_clean$source)
-country_levels <- levels(data_clean$country)
-device_category_levels <- levels(data_clean$deviceCategory)
-
-data_clean_test = data_clean_test %>% 
-  select(!all_of(fcts_drop)) %>%
-
-  mutate(browser = factor(browser, levels = browser_levels) %>% fct_na_value_to_level("Other"),
-         operatingSystem = factor(operatingSystem, levels = operating_system_levels) %>% fct_na_value_to_level("Other"),
-         source = factor(source, levels = source_levels) %>% fct_na_value_to_level("Other"),
-         country = factor(country, levels = country_levels) %>% fct_na_value_to_level("Other"),
-         deviceCategory = factor(deviceCategory, levels = device_category_levels) %>% fct_na_value_to_level("Other")
-         )
-```
-
 
 Add new derived features.
 ```{r, echo=F}
@@ -342,22 +303,22 @@ data_aggregated = data_clean %>%
     reframe(across(where(is.factor), getMode),
             across(where(is.logical), getMode),
             visitNumber = max(visitNumber),
-            timeSinceLastVisit = mean(timeSinceLastVisit), ##not sure about average
+            timeSinceLastVisit = mean(timeSinceLastVisit), 
             pageviews = sum(pageviews),
             revenue = sum(revenue),
             visit_hour = getMode(visit_hour)
-            )
+            ) %>%
+    mutate(log_revenue = log(revenue+1)) %>%
+    select(-revenue)
 
 ## test 
-
 data_aggregated_test = data_clean_test %>%
     group_by(custId) %>%
     reframe(across(where(is.factor), getMode),
             across(where(is.logical), getMode),
             visitNumber = max(visitNumber),
-            timeSinceLastVisit = mean(timeSinceLastVisit), ##not sure about average
+            timeSinceLastVisit = mean(timeSinceLastVisit), 
             pageviews = sum(pageviews),
-            ,
             visit_hour = getMode(visit_hour)
             )
 
@@ -365,15 +326,47 @@ data_aggregated_test = data_clean_test %>%
 gc()
 ```
 
-```{r, echo=F}
-data_aggregated = data_aggregated %>%
-  mutate(log_revenue = log(revenue+1)) %>%
-  select(-revenue)
 
-data_aggregated %>% str()
+Collapse high cardinality factors. Remove redundant
+geographic features. Remove useless columns.
+```{r, echo=F}
+fcts_drop = c("continent", "subContinent", "city", "metro", "region",
+            "adwordsClickInfo.isVideoAd","adwordsClickInfo.adNetworkType",
+            "adwordsClickInfo.page", "adwordsClickInfo.slot",
+            "campaign", "topLevelDomain")
+
+data_aggregated = data_aggregated %>% 
+  select(!all_of(fcts_drop)) %>%
+  mutate(browser=fct_lump_lowfreq(browser),
+         operatingSystem=fct_lump_lowfreq(operatingSystem),
+         source=fct_lump_lowfreq(source),
+         country=fct_lump_n(country, n=5),
+         channelGrouping=fct_lump_lowfreq(channelGrouping),
+         deviceCategory=fct_lump_lowfreq(deviceCategory)) 
+```
+```{r}
+
+## test
+
+# saving the previous levels based on revenue from training because we dont have reveune in this data
+browser_levels <- levels(data_clean$browser)
+operating_system_levels <- levels(data_clean$operatingSystem)
+source_levels <- levels(data_clean$source)
+country_levels <- levels(data_clean$country)
+device_category_levels <- levels(data_clean$deviceCategory)
+
+data_aggregated_test = data_aggregated_test %>% 
+  select(!all_of(fcts_drop)) %>%
+  mutate(browser = factor(browser, levels = browser_levels) %>% fct_na_value_to_level("Other"),
+         operatingSystem = factor(operatingSystem, levels = operating_system_levels) %>% fct_na_value_to_level("Other"),
+         source = factor(source, levels = source_levels) %>% fct_na_value_to_level("Other"),
+         country = factor(country, levels = country_levels) %>% fct_na_value_to_level("Other"),
+         deviceCategory = factor(deviceCategory, levels = device_category_levels) %>% fct_na_value_to_level("Other")
+         )
 ```
 
-Perform power transformations on numeric variables:
+
+Perform power transformations on numeric variables: (not set on keeping...)
 ```{r, echo=F}
 pTransf = function(x) {
   p = powerTransform(x ~ 1, family="yjPower")
@@ -382,57 +375,59 @@ pTransf = function(x) {
 data_aggregated = data_aggregated %>%
   mutate(across(c("visitNumber","timeSinceLastVisit","pageviews"), pTransf))
 
+data_aggregated_test = data_aggregated_test %>%
+  mutate(across(c("visitNumber","timeSinceLastVisit","pageviews"), pTransf))
+
 ```
 
 
 
 # ---- Modeling ---- #
 
-Model OLS using stepwise selection to reduce # of factor vars
+
+Create holdout set for model validation and define k-fold validation
 ```{r, echo=F}
-
-## downsample to 1/2 of training data to not overload memory
-data_sampled = data_aggregated %>% slice_sample(prop=0.50)
-
-train_control <- trainControl(method = "cv", number = 5)
-
-ols_model <- train(log_revenue ~ . - custId, 
-                           data = data_sampled, 
-                   method = "leapSeq", 
-                   tuneGrid = expand.grid(nvmax = 1:16),
-                   trControl = train_control,
-                   metric = "RMSE")
- 
-ols_model
+trPos = createDataPartition(data_aggregated$log_revenue, p=0.75, list=F)
+training = data_aggregated[trPos,]
+testing = data_aggregated[-trPos,]
+train_control= trainControl(method = "cv", number = 5)
 ```
 
-Lasso model:
+Define list of regression models (NEED TO TUNE PARAMETERS)
 ```{r, echo=F}
-
-lasso_model <- train(log_revenue ~ . - custId,
-                           data = data_sampled, 
-                   method = "lasso", 
-                   tuneGrid = expand.grid(fraction = seq(0.1,1, by=0.1)),
-                   trControl = train_control,
-                   metric = "RMSE")
- 
-lasso_model
+models = caretList(
+  log_revenue ~ . ,
+  data = select(training, -custId),
+  methodList = c("lm", "leapSeq","pls", "lasso", "earth"),
+  trControl = train_control,
+  metric = "RMSE")
+print(summary(models))
 ```
 
-Elastic net:
+check correlation of models
 ```{r, echo=F}
-
-enet_model <- train(log_revenue ~ . - custId,
-                           data = data_sampled, 
-                   method = "enet", 
-                   tuneGrid = expand.grid(fraction = seq(0, 1, by=0.1),
-                                          lambda = seq(0, 1, by=0.1)),
-                   trControl = train_control,
-                   preProcess = c("scale"),
-                   metric = "RMSE")
- 
-enet_model
+modelCor(resamples(models))
 ```
+
+Ensemble model
+```{r, echo=F}
+ensemble = caretEnsemble(models)
+print(summary(ensemble))
+```
+
+
+Make predictions on holdout testing data
+```{r, echo=F}
+model_test_pred = predict(ensemble, testing)
+postResample(model_test_pred, testing$log_revenue)
+```
+
+Stop cluster
+```{r, echo=F}
+stopCluster(cl)
+gc()
+```
+
 
 
 # ---- EXTRA CODE ---- 
