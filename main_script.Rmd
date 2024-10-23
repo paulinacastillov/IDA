@@ -255,12 +255,6 @@ continents.
 
 # ---- Data Preparation & Feature Engineering ----
 
-Parallel processing package to speed things up (don't run if low memory)
-```{r, echo=F}
-library("doParallel")
-cl <- makePSOCKcluster(6)
-registerDoParallel(cl)
-```
 
 Cast NAs in factors as extra level to preserve information & drop cases of
 no page views. There are only 8 cases of no pageviews and they didn't 
@@ -268,14 +262,14 @@ buy anything.
 ```{r, echo=F}
 data_clean = raw_data_typed %>%
   mutate_if(is.factor, fct_na_value_to_level, level="Other") %>%
-  filter(!is.na(pageviews)) %>%
-  replace_na(list(bounces=0,newVisits=0))
+  #filter(!is.na(pageviews)) %>%
+  replace_na(list(bounces=0,newVisits=0,pageviews=1))
 
 ## test
 data_clean_test = raw_data_typed_test %>%
   mutate_if(is.factor, fct_na_value_to_level, level="Other") %>%
-  filter(!is.na(pageviews)) %>%
-  replace_na(list(bounces=0,newVisits=0))
+  #filter(!is.na(pageviews)) %>%
+  replace_na(list(bounces=0,newVisits=0, pageviews=1))
 ```
 
 Add new derived features.
@@ -349,11 +343,12 @@ data_aggregated = data_aggregated %>%
 ## test
 
 # saving the previous levels based on revenue from training because we dont have reveune in this data
-browser_levels <- levels(data_clean$browser)
-operating_system_levels <- levels(data_clean$operatingSystem)
-source_levels <- levels(data_clean$source)
-country_levels <- levels(data_clean$country)
-device_category_levels <- levels(data_clean$deviceCategory)
+browser_levels <- levels(data_aggregated$browser)
+operating_system_levels <- levels(data_aggregated$operatingSystem)
+source_levels <- levels(data_aggregated$source)
+country_levels <- levels(data_aggregated$country)
+channelGrouping_levels <- levels(data_aggregated$channelGrouping)
+device_category_levels <- levels(data_aggregated$deviceCategory)
 
 data_aggregated_test = data_aggregated_test %>% 
   select(!all_of(fcts_drop)) %>%
@@ -361,29 +356,21 @@ data_aggregated_test = data_aggregated_test %>%
          operatingSystem = factor(operatingSystem, levels = operating_system_levels) %>% fct_na_value_to_level("Other"),
          source = factor(source, levels = source_levels) %>% fct_na_value_to_level("Other"),
          country = factor(country, levels = country_levels) %>% fct_na_value_to_level("Other"),
+         channelGrouping = factor(channelGrouping, levels = channelGrouping_levels) %>% fct_na_value_to_level("Other"),
          deviceCategory = factor(deviceCategory, levels = device_category_levels) %>% fct_na_value_to_level("Other")
-         )
+        )
 ```
-
-
-Perform power transformations on numeric variables: (not set on keeping...)
-```{r, echo=F}
-pTransf = function(x) {
-  p = powerTransform(x ~ 1, family="yjPower")
-  return(yjPower(x,p1$lambda))}
-
-data_aggregated = data_aggregated %>%
-  mutate(across(c("visitNumber","timeSinceLastVisit","pageviews"), pTransf))
-
-data_aggregated_test = data_aggregated_test %>%
-  mutate(across(c("visitNumber","timeSinceLastVisit","pageviews"), pTransf))
-
-```
-
 
 
 # ---- Modeling ---- #
 
+
+Parallel processing package to speed things up (DONT RUN IF LOW MEMORY)
+```{r, echo=F}
+library("doParallel")
+cl <- makePSOCKcluster(8)
+registerDoParallel(cl)
+```
 
 Create holdout set for model validation and define k-fold validation
 ```{r, echo=F}
@@ -402,6 +389,7 @@ models = caretList(
   trControl = train_control,
   metric = "RMSE")
 print(summary(models))
+gc()
 ```
 
 check correlation of models
@@ -422,6 +410,19 @@ model_test_pred = predict(ensemble, testing)
 postResample(model_test_pred, testing$log_revenue)
 ```
 
+Predict on actual testing set
+```{r, echo=F}
+predRevenue = predict(ensemble, data_aggregated_test)
+FINAL_PREDICTIONS = as_tibble(list(custId = data_aggregated_test$custId,
+                              predRevenue = pull(predRevenue)))
+FINAL_PREDICTIONS %>% head()
+```
+
+Export to csv file
+```{r, echo=F}
+write.csv(FINAL_PREDICTIONS, 'predictions_file.csv', row.names = F)
+```
+
 Stop cluster
 ```{r, echo=F}
 stopCluster(cl)
@@ -431,6 +432,22 @@ gc()
 
 
 # ---- EXTRA CODE ---- 
+
+
+
+Perform power transformations on numeric variables: (not set on keeping...)
+```{r, echo=F}
+pTransf = function(x) {
+  p = powerTransform(x ~ 1, family="yjPower")
+  return(yjPower(x,p$lambda))}
+
+data_aggregated = data_aggregated %>%
+  mutate(across(c("visitNumber","timeSinceLastVisit","pageviews"), pTransf))
+
+data_aggregated_test = data_aggregated_test %>%
+  mutate(across(c("visitNumber","timeSinceLastVisit","pageviews"), pTransf))
+
+```
 
 
 
