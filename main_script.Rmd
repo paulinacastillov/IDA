@@ -276,11 +276,11 @@ Add new derived features.
 ```{r, echo=F}
 data_clean = data_clean %>%
   mutate(month = factor(month(date)),
-         visit_hour = hour(visitStartTime))
+         visit_hour = factor(hour(visitStartTime)))
 
 data_clean_test = data_clean_test %>%
   mutate(month = factor(month(date)),
-         visit_hour = hour(visitStartTime))
+         visit_hour = factor(hour(visitStartTime)))
 ```
 
 
@@ -365,7 +365,7 @@ Perform preprocessing steps
 ```{r, echo=F}
 pprocess_steps = data_aggregated %>%
   select(-log_revenue) %>%
-  preProcess()
+  preProcess(method = "scale")
 
 data_processed = pprocess_steps %>% predict(data_aggregated) 
 data_processed_test = pprocess_steps %>% predict(data_aggregated_test)
@@ -376,22 +376,25 @@ Create Linear Discriminant feature on customer buying or not
 data_processed = data_processed %>% mutate(bought = as_factor(ifelse(log_revenue>0,"y","n")))
 
 set.seed(42)
-trPos = createDataPartition(data_processed$bought, p=0.75, list=F)
+trPos = createDataPartition(data_processed$bought, p=0.90, list=F)
 training = data_processed[trPos,]
 train_control= trainControl(method = "cv", number = 5)
 
+## changed to knn here for more power on discriminating if buying vs not
 lda_model = caretList(
   bought ~ . ,
   data = select(training, -c(custId, log_revenue),),
-  methodList = c("lda"),
+  methodList = c("knn"),
   trControl = train_control)
 
 lda_model
 ```
 
+
 ```{r, echo=F}
 data_processed = data_processed %>% 
-  mutate(lda1 = (lda_model %>% predict(data_processed) %>% pull()))
+  mutate(lda1 = (lda_model %>% predict(data_processed) %>% pull())) %>%
+  select(-bought)
 data_processed_test = data_processed_test %>% 
   mutate(lda1 = (lda_model %>% predict(data_processed_test) %>% pull()))
 ```
@@ -402,7 +405,7 @@ data_processed_test = data_processed_test %>%
 Parallel processing package to speed things up (DONT RUN IF LOW MEMORY)
 ```{r, echo=F}
 library("doParallel")
-cl <- makePSOCKcluster(6)
+cl <- makePSOCKcluster(8)
 registerDoParallel(cl)
 ```
 
@@ -424,8 +427,8 @@ tune_list = list(
     earth = caretModelSpec(method = "earth", tuneLength = 16))
     
 models = caretList(
-  log_revenue ~ . + channelGrouping:month,
-  data = select(training, -c(bought,custId)),
+  log_revenue ~ . + month*country + channelGrouping*operatingSystem,
+  data = select(training, -c(custId)),
   methodList = c("lm"),
   trControl = train_control,
   tuneList = tune_list,
