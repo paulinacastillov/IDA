@@ -16,7 +16,7 @@ Git Reference
 
 ```{r, results="hide", message=FALSE, echo=F}
 ## load/install packages
-packages = c("caret", "caretEnsemble", "car", "knitr","tidyverse", "GGally")
+packages = c("caret", "caretEnsemble", "car", "MASS", "knitr","tidyverse", "GGally")
 lapply(packages, require, character.only = TRUE)
 options(scipen=99)
 #options(digits=10)
@@ -361,6 +361,40 @@ data_aggregated_test = data_aggregated_test %>%
         )
 ```
 
+Perform preprocessing steps
+```{r, echo=F}
+pprocess_steps = data_aggregated %>%
+  select(-log_revenue) %>%
+  preProcess()
+
+data_processed = pprocess_steps %>% predict(data_aggregated) 
+data_processed_test = pprocess_steps %>% predict(data_aggregated_test)
+```
+
+Create Linear Discriminant feature on customer buying or not
+```{r, echo=F}
+data_processed = data_processed %>% mutate(bought = as_factor(ifelse(log_revenue>0,"y","n")))
+
+set.seed(42)
+trPos = createDataPartition(data_processed$bought, p=0.75, list=F)
+training = data_processed[trPos,]
+train_control= trainControl(method = "cv", number = 5)
+
+lda_model = caretList(
+  bought ~ . ,
+  data = select(training, -c(custId, log_revenue),),
+  methodList = c("lda"),
+  trControl = train_control)
+
+lda_model
+```
+
+```{r, echo=F}
+data_processed = data_processed %>% 
+  mutate(lda1 = (lda_model %>% predict(data_processed) %>% pull()))
+data_processed_test = data_processed_test %>% 
+  mutate(lda1 = (lda_model %>% predict(data_processed_test) %>% pull()))
+```
 
 # ---- Modeling ---- #
 
@@ -368,26 +402,35 @@ data_aggregated_test = data_aggregated_test %>%
 Parallel processing package to speed things up (DONT RUN IF LOW MEMORY)
 ```{r, echo=F}
 library("doParallel")
-cl <- makePSOCKcluster(8)
+cl <- makePSOCKcluster(6)
 registerDoParallel(cl)
 ```
 
 Create holdout set for model validation and define k-fold validation
 ```{r, echo=F}
-trPos = createDataPartition(data_aggregated$log_revenue, p=0.75, list=F)
-training = data_aggregated[trPos,]
-testing = data_aggregated[-trPos,]
+set.seed(42)
+trPos = createDataPartition(data_processed$log_revenue, p=0.75, list=F)
+training = data_processed[trPos,]
+testing = data_processed[-trPos,]
 train_control= trainControl(method = "cv", number = 5)
 ```
 
 Define list of regression models (NEED TO TUNE PARAMETERS)
 ```{r, echo=F}
+tune_list = list(
+    stpwse = caretModelSpec(method = "leapSeq", tuneLength = 16),
+    pls = caretModelSpec(method = "pls", tuneLength = 16),
+    lasso = caretModelSpec(method = "lasso", tuneLength = 16),
+    earth = caretModelSpec(method = "earth", tuneLength = 16))
+    
 models = caretList(
-  log_revenue ~ . ,
-  data = select(training, -custId),
-  methodList = c("lm", "leapSeq","pls", "lasso", "earth"),
+  log_revenue ~ . + channelGrouping:month,
+  data = select(training, -c(bought,custId)),
+  methodList = c("lm"),
   trControl = train_control,
+  tuneList = tune_list,
   metric = "RMSE")
+
 print(summary(models))
 gc()
 ```
@@ -403,7 +446,6 @@ ensemble = caretEnsemble(models)
 print(summary(ensemble))
 ```
 
-
 Make predictions on holdout testing data
 ```{r, echo=F}
 model_test_pred = predict(ensemble, testing)
@@ -412,8 +454,8 @@ postResample(model_test_pred, testing$log_revenue)
 
 Predict on actual testing set
 ```{r, echo=F}
-predRevenue = predict(ensemble, data_aggregated_test)
-FINAL_PREDICTIONS = as_tibble(list(custId = data_aggregated_test$custId,
+predRevenue = predict(ensemble, data_processed_test)
+FINAL_PREDICTIONS = as_tibble(list(custId = data_processed_test$custId,
                               predRevenue = pull(predRevenue)))
 FINAL_PREDICTIONS %>% head()
 ```
@@ -449,6 +491,17 @@ data_aggregated_test = data_aggregated_test %>%
 
 ```
 
+
+Support vector regression
+```{r, echo=F}
+svr_list = list(svm = caretModelSpec(method = "svmLinear",tuneLength=3))
+
+svr = caretList(log_revenue ~ .,  data = select(training, -custId),
+               tuneList = svr_list,
+               trControl = train_control,
+               metric = "RMSE")
+svr
+```
 
 
 # ----- PAULINA SOME EXPERIMENTS --------
