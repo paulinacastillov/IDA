@@ -318,8 +318,12 @@ data_aggregated_test = data_clean_test %>%
 
 ## call garbage collection after that massive aggregation
 gc()
-```
 
+```
+```{r, echo=F}
+data_aggregated2 = data_aggregated
+data_aggregated_test2 = data_aggregated_test
+```
 
 Collapse high cardinality factors. Remove redundant
 geographic features. Remove useless columns.
@@ -329,14 +333,16 @@ fcts_drop = c("continent", "subContinent", "city", "metro", "region",
             "adwordsClickInfo.page", "adwordsClickInfo.slot",
             "campaign", "topLevelDomain")
 
-data_aggregated = data_aggregated %>% 
+
+cutoff = 0.05
+data_aggregated = data_aggregated2 %>% 
   select(!all_of(fcts_drop)) %>%
-  mutate(browser=fct_lump_lowfreq(browser),
-         operatingSystem=fct_lump_lowfreq(operatingSystem),
-         source=fct_lump_lowfreq(source),
-         country=fct_lump_n(country, n=5),
-         channelGrouping=fct_lump_lowfreq(channelGrouping),
-         deviceCategory=fct_lump_lowfreq(deviceCategory)) 
+  mutate(browser=fct_lump_prop(browser,prop=cutoff, w=log_revenue),
+         operatingSystem=fct_lump_prop(operatingSystem, prop=cutoff, w=log_revenue),
+         source=fct_lump_prop(source, prop=cutoff, w=log_revenue),
+         country=fct_lump_prop(country, prop=cutoff, w=log_revenue),
+         channelGrouping=fct_lump_prop(channelGrouping, prop=cutoff, w=log_revenue),
+         deviceCategory=fct_lump_prop(deviceCategory, prop=cutoff, w=log_revenue)) 
 ```
 ```{r}
 
@@ -350,7 +356,8 @@ country_levels <- levels(data_aggregated$country)
 channelGrouping_levels <- levels(data_aggregated$channelGrouping)
 device_category_levels <- levels(data_aggregated$deviceCategory)
 
-data_aggregated_test = data_aggregated_test %>% 
+
+data_aggregated_test = data_aggregated_test2 %>% 
   select(!all_of(fcts_drop)) %>%
   mutate(browser = factor(browser, levels = browser_levels) %>% fct_na_value_to_level("Other"),
          operatingSystem = factor(operatingSystem, levels = operating_system_levels) %>% fct_na_value_to_level("Other"),
@@ -373,10 +380,11 @@ data_processed_test = pprocess_steps %>% predict(data_aggregated_test)
 
 Create Linear Discriminant feature on customer buying or not
 ```{r, echo=F}
-data_processed = data_processed %>% mutate(bought = as_factor(ifelse(log_revenue>0,"y","n")))
+data_processed = data_aggregated %>%
+  mutate(bought = as_factor(ifelse(log_revenue>0,"y","n")))
 
 set.seed(42)
-trPos = createDataPartition(data_processed$bought, p=0.90, list=F)
+trPos = createDataPartition(data_processed$bought, p=0.80, list=F)
 training = data_processed[trPos,]
 train_control= trainControl(method = "cv", number = 5)
 
@@ -384,7 +392,7 @@ train_control= trainControl(method = "cv", number = 5)
 lda_model = caretList(
   bought ~ . ,
   data = select(training, -c(custId, log_revenue),),
-  methodList = c("knn"),
+  methodList = c("lda"),
   trControl = train_control)
 
 lda_model
