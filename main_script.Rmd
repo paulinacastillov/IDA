@@ -297,7 +297,7 @@ data_aggregated = data_clean %>%
     reframe(across(where(is.factor), getMode),
             across(where(is.logical), getMode),
             visitNumber = max(visitNumber),
-            timeSinceLastVisit = mean(timeSinceLastVisit), 
+            timeSinceLastVisit = sum(timeSinceLastVisit), 
             pageviews = sum(pageviews),
             revenue = sum(revenue),
             visit_hour = getMode(visit_hour)
@@ -311,7 +311,7 @@ data_aggregated_test = data_clean_test %>%
     reframe(across(where(is.factor), getMode),
             across(where(is.logical), getMode),
             visitNumber = max(visitNumber),
-            timeSinceLastVisit = mean(timeSinceLastVisit), 
+            timeSinceLastVisit = sum(timeSinceLastVisit), 
             pageviews = sum(pageviews),
             visit_hour = getMode(visit_hour)
             )
@@ -372,39 +372,39 @@ Perform preprocessing steps
 ```{r, echo=F}
 pprocess_steps = data_aggregated %>%
   select(-log_revenue) %>%
-  preProcess(method = "scale")
+  preProcess(c("scale"))
 
 data_processed = pprocess_steps %>% predict(data_aggregated) 
 data_processed_test = pprocess_steps %>% predict(data_aggregated_test)
 ```
 
-Create Linear Discriminant feature on customer buying or not
+Create discriminating feature if buying or not
 ```{r, echo=F}
-data_processed = data_aggregated %>%
+data_processed = data_processed %>%
   mutate(bought = as_factor(ifelse(log_revenue>0,"y","n")))
 
-set.seed(42)
-trPos = createDataPartition(data_processed$bought, p=0.80, list=F)
+#set.seed(42)
+trPos = createDataPartition(data_processed$bought, p=0.70, list=F)
 training = data_processed[trPos,]
 train_control= trainControl(method = "cv", number = 5)
 
-## changed to knn here for more power on discriminating if buying vs not
-lda_model = caretList(
+## discriminate if customer will buy or not as combination of existing features.
+spline_model = caretList(
   bought ~ . ,
-  data = select(training, -c(custId, log_revenue),),
-  methodList = c("lda"),
+  data = select(training, -c(custId, log_revenue)),
+  methodList = c("earth"),
+  tuneGrid = expand.grid(degree = 1, nprune = 10),
   trControl = train_control)
-
-lda_model
+spline_model
 ```
 
 
 ```{r, echo=F}
 data_processed = data_processed %>% 
-  mutate(lda1 = (lda_model %>% predict(data_processed) %>% pull())) %>%
+  mutate(spline1 = (spline_model %>% predict(data_processed) %>% pull())) %>%
   select(-bought)
 data_processed_test = data_processed_test %>% 
-  mutate(lda1 = (lda_model %>% predict(data_processed_test) %>% pull()))
+  mutate(spline1 = (spline_model %>% predict(data_processed_test) %>% pull()))
 ```
 
 # ---- Modeling ---- #
@@ -413,31 +413,36 @@ data_processed_test = data_processed_test %>%
 Parallel processing package to speed things up (DONT RUN IF LOW MEMORY)
 ```{r, echo=F}
 library("doParallel")
-cl <- makePSOCKcluster(8)
+cl <- makePSOCKcluster(10)
 registerDoParallel(cl)
 ```
 
 Create holdout set for model validation and define k-fold validation
 ```{r, echo=F}
 set.seed(42)
-trPos = createDataPartition(data_processed$log_revenue, p=0.75, list=F)
-training = data_processed[trPos,]
-testing = data_processed[-trPos,]
+sss = sample_n(data_processed, 5000)
+trPos = createDataPartition(sss$log_revenue, p=0.80, list=F)
+training = sss[trPos,]
+testing = sss[-trPos,]
 train_control= trainControl(method = "cv", number = 5)
 ```
 
-Define list of regression models (NEED TO TUNE PARAMETERS)
+Define list of regression models
 ```{r, echo=F}
 tune_list = list(
     stpwse = caretModelSpec(method = "leapSeq", tuneLength = 16),
     pls = caretModelSpec(method = "pls", tuneLength = 16),
-    lasso = caretModelSpec(method = "lasso", tuneLength = 16),
-    earth = caretModelSpec(method = "earth", tuneLength = 16))
+    lasso = caretModelSpec(method = "lasso", 
+                           tuneGrid = expand.grid(fraction = seq(0.1,1, by=0.1))),
+    earth = caretModelSpec(method = "earth", tuneLength = 20),
+    lm = caretModelSpec(method = "lm"),
+    svr = caretModelSpec(method = "svmRadial", tuneLength = 10))
     
 models = caretList(
-  log_revenue ~ . + month*country + channelGrouping*operatingSystem,
+  log_revenue ~ . + month*country + channelGrouping*operatingSystem +
+    pageviews*country,
   data = select(training, -c(custId)),
-  methodList = c("lm"),
+  #methodList = c("lm"),
   trControl = train_control,
   tuneList = tune_list,
   metric = "RMSE")
@@ -451,7 +456,7 @@ check correlation of models
 modelCor(resamples(models))
 ```
 
-Ensemble model
+Ensemble model -- greedy linear 
 ```{r, echo=F}
 ensemble = caretEnsemble(models)
 print(summary(ensemble))
