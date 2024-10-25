@@ -20,7 +20,7 @@ packages = c("caret", "caretEnsemble", "car", "MASS", "knitr","tidyverse", "GGal
 lapply(packages, require, character.only = TRUE)
 options(scipen=99)
 #options(digits=10)
-theme_set(theme_bw())
+#theme_set(theme_bw())
 ```
 
 
@@ -369,6 +369,11 @@ data_aggregated_test = data_aggregated_test2 %>%
 ```
 
 Perform preprocessing steps
+
+```{r}
+?preProcess
+```
+
 ```{r, echo=F}
 pprocess_steps = data_aggregated %>%
   select(-log_revenue) %>%
@@ -454,6 +459,65 @@ gc()
 check correlation of models
 ```{r, echo=F}
 modelCor(resamples(models))
+```
+```{r}
+extract_best_results <- function(model) {
+  best_result <- model$results %>% arrange(RMSE) %>% slice(1)
+  return(as_tibble(best_result))
+}
+
+# Crear una tabla de los mejores resultados para cada modelo
+model_results <- lapply(models, extract_best_results)
+model_data <- lapply(names(models), function(name) {
+  model <- models[[name]]
+  results <- model_results[[name]]
+  results %>% mutate(Model = toupper(name))
+})
+
+# Combinar los mejores resultados de todos los modelos en una tabla
+todos_los_modelos <- bind_rows(model_data) %>%
+  select(Model, RMSE, MAE) %>%
+  mutate(across(where(is.numeric), round, 4))
+
+# Mostrar la tabla en el reporte con kable
+todos_los_modelos_kable <- todos_los_modelos %>%
+  kable(digits = 4) %>%
+print(todos_los_modelos_kable)
+
+```
+```{r}
+
+extract_best_results <- function(model) {
+  best_result <- model$results %>% arrange(RMSE) %>% slice(1)
+  return(as_tibble(best_result))
+}
+
+# Crear una tabla de los mejores resultados para cada modelo
+model_results <- lapply(models, extract_best_results)
+model_data <- lapply(names(models), function(name) {
+  model <- models[[name]]
+  results <- model_results[[name]]
+  best_tune <- model$bestTune
+  results %>% mutate(
+    Model = toupper(name),
+    Hyperparameters = paste(names(best_tune), best_tune, sep = "=", collapse = ", "),
+    Method = model$method,
+    Package = "caret"
+  )
+})
+
+# Combinar los mejores resultados de todos los modelos en una tabla
+todos_los_modelos <- bind_rows(model_data) %>%
+  select(Model, RMSE, MAE, Hyperparameters, Method, Package) %>%
+  mutate(across(where(is.numeric), round, 4))
+
+# Mostrar la tabla en el reporte con kable
+todos_los_modelos_kable <- todos_los_modelos %>%
+  kable(digits = 4) %>%
+print(todos_los_modelos_kable)
+
+
+
 ```
 
 Ensemble model -- greedy linear 
